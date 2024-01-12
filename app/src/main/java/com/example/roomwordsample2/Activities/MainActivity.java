@@ -327,7 +327,7 @@ public class MainActivity extends FragmentActivity {
                     @Override
                     public void onChanged(Route route) {
                         if (route != null) {
-                            gpxFilePath = route.getGpxdatei();
+                            String gpxFilePath = route.getGpxdatei();
                             loadGPXFileAndDrawPolyline(gpxFilePath);
                         }
                     }
