@@ -1,4 +1,5 @@
 package com.example.roomwordsample2.Activities;// Füge deine Imports hinzu
+
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
@@ -6,82 +7,69 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.MediaStore;
+import android.os.ParcelFileDescriptor;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
-import com.bumptech.glide.Glide;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
-import com.bumptech.glide.load.DataSource;
-import com.bumptech.glide.load.engine.GlideException;
-import com.bumptech.glide.request.RequestListener;
-import com.bumptech.glide.request.target.Target;
+import com.example.roomwordsample2.Poi;
 import com.example.roomwordsample2.PoiViewModel;
 import com.example.roomwordsample2.R;
-import com.example.roomwordsample2.Poi;
 import com.example.roomwordsample2.Route;
 import com.example.roomwordsample2.RouteViewModel;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
-import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.Marker;
-
-import org.osmdroid.util.GeoPoint;
-
 import java.io.BufferedReader;
-import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends FragmentActivity {
-
-    private static final int CAMERA_REQUEST_CODE = 6;
-    private GoogleMap googleMap;
     private final int NEW_ROUTE_ACTIVITY_REQUEST_CODE = 1;
     private final int VIEW_ROUTE_ACTIVITY_REQUEST_CODE = 2;
     private final int NEW_POI_ACTIVITY_REQUEST_CODE = 3;
     private final int PICK_IMAGE_REQUEST_CODE = 4;
-    private static final int CAMERA_PERMISSION_REQUEST_CODE = 5;
+    private static final int CAMERA_REQUEST_CODE = 6;
+    private static final int STORAGE_PERMISSION_CODE = 23;
 
     private RouteViewModel mRouteViewModel;
-
     private PoiViewModel mPoiViewModel;
-
     private PolylineOptions userRouteOptions;
     private List<LatLng> waypoints = new ArrayList<>();
-
     private Marker selectedMarker;
+    private GoogleMap googleMap;
+
+    private String gpxFilePath;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        gpxFilePath = "";
+        requestForStoragePermissions();
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
@@ -105,7 +93,6 @@ public class MainActivity extends FragmentActivity {
                 });
             }
         });
-
 
 
         Button createRouteButton = findViewById(R.id.create_route);
@@ -142,10 +129,31 @@ public class MainActivity extends FragmentActivity {
 
     private void loadGPXFileAndDrawPolyline(String gpxFileName) {
 
-        gpxFileName = "fells_loop.gpx";
+        Uri fileUri = Uri.parse(gpxFileName);
+        DocumentFile documentFile = DocumentFile.fromSingleUri(this, fileUri);
+
+        // Check for READ_EXTERNAL_STORAGE permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted, request it
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                    STORAGE_PERMISSION_CODE);
+            return;
+        }
 
         try {
-            InputStream inputStream = getAssets().open(gpxFileName);
+            // Open file using openFileDescriptor
+            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(documentFile.getUri(), "r");
+            if (pfd == null) {
+                // Handle the case where opening the file descriptor fails
+                return;
+            }
+
+
+
+            FileDescriptor fd = pfd.getFileDescriptor();
+            InputStream inputStream = new FileInputStream(fd);
             InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
             BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
 
@@ -186,96 +194,94 @@ public class MainActivity extends FragmentActivity {
 
             // Zeichne die Polyline auf der Karte
             drawPolylineOnMap(points);
+
+            int routeId = 1;
+
+            // Lade POIs für die Route aus der Datenbank und zeige sie auf der Karte an
+            mRouteViewModel.getRouteById(routeId).observe(this, route -> {
+                if (route != null) {
+                    String gpxFilePath = route.getGpxdatei();
+
+                    mPoiViewModel.getPoIsForRoute(routeId).observe(this, pois -> {
+                        if (pois != null && !pois.isEmpty()) {
+                            for (Poi poi : pois) {
+                                String poiCoordinatesString = poi.getCoordinates();
+
+                                String[] parts = poiCoordinatesString.split(", ");
+
+                                double latitude = Double.parseDouble(parts[0]);
+                                double longitude = Double.parseDouble(parts[1]);
+
+                                LatLng poiCoordinates = new LatLng(latitude, longitude);
+
+                                if (poiCoordinates != null) {
+                                    MarkerOptions markerOptions = new MarkerOptions()
+                                            .position(poiCoordinates)
+                                            .title(poi.ort) // Setze den Titel des POIs
+                                            .snippet(poi.beschreibung); // Setze eine Beschreibung des POIs
+
+                                    // Füge den Marker zur Karte hinzu
+                                    Marker marker = googleMap.addMarker(markerOptions);
+
+                                    // Benutzerdefiniertes InfoWindow-Layout setzen
+                                    googleMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
+                                        @Override
+                                        public View getInfoWindow(Marker marker) {
+                                            // Hier wird das Standard-InfoWindow nicht verwendet, also wird null zurückgegeben.
+                                            return null;
+                                        }
+
+                                        @Override
+                                        public View getInfoContents(Marker marker) {
+                                            // Erstelle das Popup-Fenster
+                                            View v = getLayoutInflater().inflate(R.layout.poi_item, null);
+
+                                            ImageView imageView = v.findViewById(R.id.imageView);
+                                            TextView titleTextView = v.findViewById(R.id.titleTextView);
+                                            TextView snippetTextView = v.findViewById(R.id.snippetTextView);
+
+                                            // Setze Titel und Beschreibung des POI
+                                            titleTextView.setText(marker.getTitle());
+                                            snippetTextView.setText(marker.getSnippet());
+
+                                            // Lade das Bild für diesen speziellen POI und setze es im ImageView
+                                            String imagePath = poi.getFotoPath();
+                                            try {
+                                                Uri imageUri = Uri.parse(imagePath);
+                                                InputStream inputStream = getContentResolver().openInputStream(imageUri);
+                                                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                                                imageView.setImageBitmap(bitmap);
+
+                                            } catch (FileNotFoundException e) {
+                                                e.printStackTrace();
+                                                // Hier könnten Sie eine Fehlermeldung anzeigen oder ein Standardbild setzen
+                                            } catch (Exception e) {
+                                                e.printStackTrace();
+                                                // Generische Exception-Handling, für alle anderen möglichen Fehler
+                                            }
+
+                                            return v;
+                                        }
+                                    });
+
+                                    // InfoWindow anzeigen, wenn der Marker angeklickt wird
+                                    googleMap.setOnMarkerClickListener(clickedMarker -> {
+                                        clickedMarker.showInfoWindow();
+                                        return true; // Indiziert, dass wir das Standardverhalten überschreiben
+                                    });
+
+                                    // InfoWindow anzeigen, wenn der Marker angeklickt wird
+                                    marker.showInfoWindow();
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
         } catch (IOException | NumberFormatException e) {
             e.printStackTrace();
         }
-
-        int routeId = 1;
-
-        // Lade POIs für die Route aus der Datenbank und zeige sie auf der Karte an
-        mRouteViewModel.getRouteById(routeId).observe(this, route -> {
-            if (route != null) {
-                String gpxFilePath = route.getGpxdatei();
-
-                mPoiViewModel.getPoIsForRoute(routeId).observe(this, pois -> {
-                    if (pois != null && !pois.isEmpty()) {
-                        for (Poi poi : pois) {
-                            String poiCoordinatesString = poi.getCoordinates();
-
-                            String[] parts = poiCoordinatesString.split(", ");
-
-                            double latitude = Double.parseDouble(parts[0]);
-                            double longitude = Double.parseDouble(parts[1]);
-
-                            LatLng poiCoordinates = new LatLng(latitude, longitude);
-
-                            if (poiCoordinates != null) {
-                                MarkerOptions markerOptions = new MarkerOptions()
-                                        .position(poiCoordinates)
-                                        .title(poi.ort) // Setze den Titel des POIs
-                                        .snippet(poi.beschreibung); // Setze eine Beschreibung des POIs
-
-                                // Füge den Marker zur Karte hinzu
-                                Marker marker = googleMap.addMarker(markerOptions);
-
-                                // Benutzerdefiniertes InfoWindow-Layout setzen
-                                googleMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
-                                    @Override
-                                    public View getInfoWindow(Marker marker) {
-                                        // Hier wird das Standard-InfoWindow nicht verwendet, also wird null zurückgegeben.
-                                        return null;
-                                    }
-
-                                    @Override
-                                    public View getInfoContents(Marker marker) {
-                                        // Erstelle das Popup-Fenster
-                                        View v = getLayoutInflater().inflate(R.layout.poi_item, null);
-
-                                        ImageView imageView = v.findViewById(R.id.imageView);
-                                        TextView titleTextView = v.findViewById(R.id.titleTextView);
-                                        TextView snippetTextView = v.findViewById(R.id.snippetTextView);
-
-                                        // Setze Titel und Beschreibung des POI
-                                        titleTextView.setText(marker.getTitle());
-                                        snippetTextView.setText(marker.getSnippet());
-
-                                        // Lade das Bild für diesen speziellen POI und setze es im ImageView
-                                        String imagePath = poi.getFotoPath();
-                                        try {
-                                            Uri imageUri = Uri.parse(imagePath);
-                                            InputStream inputStream = getContentResolver().openInputStream(imageUri);
-                                            Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                                            imageView.setImageBitmap(bitmap);
-
-                                        } catch (FileNotFoundException e) {
-                                            e.printStackTrace();
-                                            // Hier könnten Sie eine Fehlermeldung anzeigen oder ein Standardbild setzen
-                                        } catch (Exception e) {
-                                            e.printStackTrace();
-                                            // Generische Exception-Handling, für alle anderen möglichen Fehler
-                                        }
-
-                                        return v;
-                                    }
-                                });
-
-                                // InfoWindow anzeigen, wenn der Marker angeklickt wird
-                                googleMap.setOnMarkerClickListener(clickedMarker -> {
-                                    clickedMarker.showInfoWindow();
-                                    return true; // Indiziert, dass wir das Standardverhalten überschreiben
-                                });
-
-
-
-                                // InfoWindow anzeigen, wenn der Marker angeklickt wird
-
-                                marker.showInfoWindow();
-                            }
-                        }
-                    }
-                });
-            }
-        });
     }
 
     private void openImageChooser() {
@@ -287,42 +293,6 @@ public class MainActivity extends FragmentActivity {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
         startActivityForResult(intent, PICK_IMAGE_REQUEST_CODE);
-    }
-
-    private void checkCameraPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            // Permission is not granted
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA},
-                    CAMERA_PERMISSION_REQUEST_CODE);
-        } else {
-            // Permission already granted
-            openCamera();
-        }
-    }
-
-    private void openCamera() {
-        // Intent to open the camera app
-        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (cameraIntent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(cameraIntent, CAMERA_REQUEST_CODE);
-        }
-    }
-
-    // Override for handling permission request result
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Camera permission granted
-                openCamera();
-            } else {
-                // Camera permission denied
-                // Handle accordingly (e.g., show a message to the user)
-            }
-        }
     }
 
     @Override
@@ -337,9 +307,8 @@ public class MainActivity extends FragmentActivity {
                     @Override
                     public void onChanged(Route route) {
                         if (route != null) {
-                            String gpxFilePath = route.getGpxdatei();
-                            // Hier hast du den Dateipfad zur GPX-Datei
-                            loadGPXFileAndDrawPolyline(gpxFilePath); // Funktion, um die GPX-Datei zu laden und die Polyline zu zeichnen
+                            gpxFilePath = route.getGpxdatei();
+                            loadGPXFileAndDrawPolyline(gpxFilePath);
                         }
                     }
                 });
@@ -352,7 +321,7 @@ public class MainActivity extends FragmentActivity {
                 Bitmap photo = (Bitmap) data.getExtras().get("data");
 
                 // Speichere das Foto und aktualisiere den Datenbankpfad
-                savePhotoAndUpdateDatabase(photo);
+                // savePhotoAndUpdateDatabase(photo);
             }
         }
 
@@ -370,6 +339,54 @@ public class MainActivity extends FragmentActivity {
         }
     }
 
+    private void drawPolylineOnMap(List<LatLng> points) {
+        if (points != null && !points.isEmpty() && googleMap != null) {
+            PolylineOptions polylineOptions = new PolylineOptions();
+            polylineOptions.color(Color.BLUE);
+            polylineOptions.width(5f);
+
+            for (LatLng latLng : points) {
+                polylineOptions.add(latLng);
+            }
+
+            // Füge die Polyline zur Karte hinzu
+            googleMap.addPolyline(polylineOptions);
+
+            // Setze die Kameraansicht auf den ersten Punkt der Polyline oder Mittelpunkt der Strecke
+            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(points.get(0), 15f));
+        }
+    }
+
+    private void requestForStoragePermissions() {
+        // Check if the app has storage permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted, request it
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                    STORAGE_PERMISSION_CODE);
+        } else {
+            // Permission already granted
+            // You can perform any actions that require storage access here
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        // Check which permission request is being responded to
+        if (requestCode == STORAGE_PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Storage permission granted, try loading the GPX file again
+                loadGPXFileAndDrawPolyline(gpxFilePath);
+            } else {
+                // Storage permission denied
+                // Handle accordingly (e.g., show a message to the user)
+            }
+        }
+    }
+/*
     private void savePhotoAndUpdateDatabase(Bitmap photo) {
         // Hier kannst du das Foto in einem Dateispeicher oder in der Datenbank speichern
         // Beispiel: Speichere das Bild im internen Dateispeicher der App
@@ -400,21 +417,40 @@ public class MainActivity extends FragmentActivity {
         }
     }
 
-    private void drawPolylineOnMap(List<LatLng> points) {
-        if (points != null && !points.isEmpty() && googleMap != null) {
-            PolylineOptions polylineOptions = new PolylineOptions();
-            polylineOptions.color(Color.BLUE);
-            polylineOptions.width(5f);
-
-            for (LatLng latLng : points) {
-                polylineOptions.add(latLng);
-            }
-
-            // Füge die Polyline zur Karte hinzu
-            googleMap.addPolyline(polylineOptions);
-
-            // Setze die Kameraansicht auf den ersten Punkt der Polyline oder Mittelpunkt der Strecke
-            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(points.get(0), 15f));
+        private void checkCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA},
+                    CAMERA_PERMISSION_REQUEST_CODE);
+        } else {
+            // Permission already granted
+            openCamera();
         }
     }
+
+    private void openCamera() {
+        // Intent to open the camera app
+        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (cameraIntent.resolveActivity(getPackageManager()) != null) {
+            startActivityForResult(cameraIntent, CAMERA_REQUEST_CODE);
+        }
+    }
+
+        @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Camera permission granted
+                openCamera();
+            } else {
+                // Camera permission denied
+                // Handle accordingly (e.g., show a message to the user)
+            }
+        }
+    }
+
+ */
 }

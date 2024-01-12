@@ -64,7 +64,7 @@
             android:textSize="18sp" />
 
         <Button
-            android:id="@+id/button_choose_file"
+            android:id="@+id/button_choose_gpx"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/colorPrimary"
@@ -82,25 +82,6 @@
             android:inputType="textAutoComplete"
             android:layout_margin="@dimen/big_padding"
             android:textSize="18sp" />
-
-        <!--
-        <TextView
-            android:id="@+id/selected_pois"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="@dimen/big_padding"
-            android:text="Select Pois"
-            android:textSize="18sp" />
-
-        <Button
-            android:id="@+id/button_choose_pois"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/colorPrimary"
-            android:text="Choose Pois"
-            android:layout_margin="@dimen/big_padding"
-            android:textColor="@color/buttonLabel" />
-            -->
 
         <Button
             android:id="@+id/button_save"
