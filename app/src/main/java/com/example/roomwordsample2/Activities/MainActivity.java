@@ -1,7 +1,9 @@
 package com.example.roomwordsample2.Activities;// Füge deine Imports hinzu
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -10,6 +12,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -37,9 +40,11 @@ import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -47,12 +52,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends FragmentActivity {
-    private final int NEW_ROUTE_ACTIVITY_REQUEST_CODE = 1;
+    private final int NEW_ROUTE_ACTIVITY_REQUEST_CODE = 5;
     private final int VIEW_ROUTE_ACTIVITY_REQUEST_CODE = 2;
     private final int NEW_POI_ACTIVITY_REQUEST_CODE = 3;
     private final int PICK_IMAGE_REQUEST_CODE = 4;
     private static final int CAMERA_REQUEST_CODE = 6;
     private static final int STORAGE_PERMISSION_CODE = 23;
+    private static final int CAMERA_PERMISSION_REQUEST_CODE = 1;
 
     private RouteViewModel mRouteViewModel;
     private PoiViewModel mPoiViewModel;
@@ -61,14 +67,10 @@ public class MainActivity extends FragmentActivity {
     private Marker selectedMarker;
     private GoogleMap googleMap;
 
-    private String gpxFilePath;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        gpxFilePath = "";
         requestForStoragePermissions();
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
@@ -200,7 +202,6 @@ public class MainActivity extends FragmentActivity {
             // Lade POIs für die Route aus der Datenbank und zeige sie auf der Karte an
             mRouteViewModel.getRouteById(routeId).observe(this, route -> {
                 if (route != null) {
-                    String gpxFilePath = route.getGpxdatei();
 
                     mPoiViewModel.getPoIsForRoute(routeId).observe(this, pois -> {
                         if (pois != null && !pois.isEmpty()) {
@@ -223,6 +224,17 @@ public class MainActivity extends FragmentActivity {
                                     // Füge den Marker zur Karte hinzu
                                     Marker marker = googleMap.addMarker(markerOptions);
 
+                                    marker.setTag(poi); // Assuming 'poi' is your POI object
+
+                                    googleMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+                                        @Override
+                                        public boolean onMarkerClick(Marker marker) {
+                                            Poi selectedPoi = (Poi) marker.getTag();
+                                            showDialogWithButtons(selectedPoi);
+                                            return true; // Return true to indicate that the click event has been handled
+                                        }
+                                    });
+
                                     // Benutzerdefiniertes InfoWindow-Layout setzen
                                     googleMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
                                         @Override
@@ -233,45 +245,10 @@ public class MainActivity extends FragmentActivity {
 
                                         @Override
                                         public View getInfoContents(Marker marker) {
-                                            // Erstelle das Popup-Fenster
-                                            View v = getLayoutInflater().inflate(R.layout.poi_item, null);
 
-                                            ImageView imageView = v.findViewById(R.id.imageView);
-                                            TextView titleTextView = v.findViewById(R.id.titleTextView);
-                                            TextView snippetTextView = v.findViewById(R.id.snippetTextView);
-
-                                            // Setze Titel und Beschreibung des POI
-                                            titleTextView.setText(marker.getTitle());
-                                            snippetTextView.setText(marker.getSnippet());
-
-                                            // Lade das Bild für diesen speziellen POI und setze es im ImageView
-                                            String imagePath = poi.getFotoPath();
-                                            try {
-                                                Uri imageUri = Uri.parse(imagePath);
-                                                InputStream inputStream = getContentResolver().openInputStream(imageUri);
-                                                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                                                imageView.setImageBitmap(bitmap);
-
-                                            } catch (FileNotFoundException e) {
-                                                e.printStackTrace();
-                                                // Hier könnten Sie eine Fehlermeldung anzeigen oder ein Standardbild setzen
-                                            } catch (Exception e) {
-                                                e.printStackTrace();
-                                                // Generische Exception-Handling, für alle anderen möglichen Fehler
-                                            }
-
-                                            return v;
+                                            return null;
                                         }
                                     });
-
-                                    // InfoWindow anzeigen, wenn der Marker angeklickt wird
-                                    googleMap.setOnMarkerClickListener(clickedMarker -> {
-                                        clickedMarker.showInfoWindow();
-                                        return true; // Indiziert, dass wir das Standardverhalten überschreiben
-                                    });
-
-                                    // InfoWindow anzeigen, wenn der Marker angeklickt wird
-                                    marker.showInfoWindow();
                                 }
                             }
                         }
@@ -282,6 +259,48 @@ public class MainActivity extends FragmentActivity {
         } catch (IOException | NumberFormatException e) {
             e.printStackTrace();
         }
+    }
+
+    private void showDialogWithButtons(Poi poi) {
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.poi_item); // You need to create this layout
+
+        Button chooseImageButton = dialog.findViewById(R.id.chooseImageButton);
+        Button makeImageButton = dialog.findViewById(R.id.open_Camera_Button);
+        TextView titleTextView = dialog.findViewById(R.id.titleTextView);
+        TextView snippetTextView = dialog.findViewById(R.id.snippetTextView);
+        ImageView imageView = dialog.findViewById(R.id.imageView);
+
+        chooseImageButton.setOnClickListener(view -> {
+            openImageChooser();
+            dialog.dismiss();
+        });
+
+        makeImageButton.setOnClickListener(view -> {
+            checkCameraPermission();
+
+        });
+        // Set other views in the dialog with the data from the poi object
+        titleTextView.setText(poi.ort);
+        snippetTextView.setText(poi.beschreibung);
+
+        String imagePath = poi.getFotoPath();
+        System.out.println("TEST" + imagePath);
+        if (imagePath != null && !imagePath.isEmpty()) {
+            try {
+                Uri imageUri = Uri.parse(imagePath);
+                InputStream inputStream = getContentResolver().openInputStream(imageUri);
+                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                imageView.setImageBitmap(bitmap);
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            }
+            catch (Exception e) {
+                System.out.println("HERE IS THE ERROR:" + e);
+                // Generische Exception-Handling, für alle anderen möglichen Fehler
+            }
+        }
+        dialog.show();
     }
 
     private void openImageChooser() {
@@ -295,6 +314,7 @@ public class MainActivity extends FragmentActivity {
         startActivityForResult(intent, PICK_IMAGE_REQUEST_CODE);
     }
 
+    @SuppressLint("WrongConstant")
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -312,6 +332,21 @@ public class MainActivity extends FragmentActivity {
                         }
                     }
                 });
+            }
+        }
+
+        if (requestCode == PICK_IMAGE_REQUEST_CODE && resultCode == RESULT_OK) {
+            if (data != null && data.getData() != null) {
+                Uri imageUri = data.getData();
+
+                // Take persistable URI permission so you can access the file later
+                final int takeFlags = data.getFlags()
+                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                getContentResolver().takePersistableUriPermission(imageUri, takeFlags);
+
+                // Now you can use the URI to access the file
+                // Set the image in your ImageView or save the URI to use later
             }
         }
 
@@ -371,22 +406,6 @@ public class MainActivity extends FragmentActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        // Check which permission request is being responded to
-        if (requestCode == STORAGE_PERMISSION_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Storage permission granted, try loading the GPX file again
-                loadGPXFileAndDrawPolyline(gpxFilePath);
-            } else {
-                // Storage permission denied
-                // Handle accordingly (e.g., show a message to the user)
-            }
-        }
-    }
-/*
     private void savePhotoAndUpdateDatabase(Bitmap photo) {
         // Hier kannst du das Foto in einem Dateispeicher oder in der Datenbank speichern
         // Beispiel: Speichere das Bild im internen Dateispeicher der App
@@ -452,5 +471,5 @@ public class MainActivity extends FragmentActivity {
         }
     }
 
- */
+
 }
