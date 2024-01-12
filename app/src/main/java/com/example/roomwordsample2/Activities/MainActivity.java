@@ -11,6 +11,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.view.View;
@@ -21,6 +22,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Observer;
@@ -48,8 +50,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends FragmentActivity {
     private final int NEW_ROUTE_ACTIVITY_REQUEST_CODE = 5;
@@ -58,7 +63,6 @@ public class MainActivity extends FragmentActivity {
     private final int PICK_IMAGE_REQUEST_CODE = 4;
     private static final int CAMERA_REQUEST_CODE = 6;
     private static final int STORAGE_PERMISSION_CODE = 23;
-    private static final int CAMERA_PERMISSION_REQUEST_CODE = 1;
 
     private RouteViewModel mRouteViewModel;
     private PoiViewModel mPoiViewModel;
@@ -66,12 +70,17 @@ public class MainActivity extends FragmentActivity {
     private List<LatLng> waypoints = new ArrayList<>();
     private Marker selectedMarker;
     private GoogleMap googleMap;
+    private int currentRouteId;
+    private int currentlyShowingPoiId;
+    private String mCurrentPhotoPath; // Instanzvariable für den aktuellen Foto-Pfad
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         requestForStoragePermissions();
+
+        currentRouteId = -1;
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
@@ -120,6 +129,10 @@ public class MainActivity extends FragmentActivity {
             @Override
             public void onClick(View view) {
                 Intent intent = new Intent(MainActivity.this, NewPoiActivity.class);
+
+                // Füge die currentRouteId dem Intent als Extra hinzu
+                intent.putExtra("ROUTE_ID", currentRouteId);
+
                 startActivityForResult(intent, NEW_POI_ACTIVITY_REQUEST_CODE);
             }
         });
@@ -197,58 +210,59 @@ public class MainActivity extends FragmentActivity {
             // Zeichne die Polyline auf der Karte
             drawPolylineOnMap(points);
 
-            int routeId = 1;
-
             // Lade POIs für die Route aus der Datenbank und zeige sie auf der Karte an
-            mRouteViewModel.getRouteById(routeId).observe(this, route -> {
+            mRouteViewModel.getRouteById(currentRouteId).observe(this, route -> {
                 if (route != null) {
 
-                    mPoiViewModel.getPoIsForRoute(routeId).observe(this, pois -> {
+                    mPoiViewModel.getPoIsForRoute(currentRouteId).observe(this, pois -> {
                         if (pois != null && !pois.isEmpty()) {
                             for (Poi poi : pois) {
-                                String poiCoordinatesString = poi.getCoordinates();
+                                // Zeige nur die Pois an die zur gerade ausgewählten Route gehören
+                                if(poi.getPoiId() == currentRouteId) {
+                                    String poiCoordinatesString = poi.getCoordinates();
 
-                                String[] parts = poiCoordinatesString.split(", ");
+                                    String[] parts = poiCoordinatesString.split(", ");
 
-                                double latitude = Double.parseDouble(parts[0]);
-                                double longitude = Double.parseDouble(parts[1]);
+                                    double latitude = Double.parseDouble(parts[0]);
+                                    double longitude = Double.parseDouble(parts[1]);
 
-                                LatLng poiCoordinates = new LatLng(latitude, longitude);
+                                    LatLng poiCoordinates = new LatLng(latitude, longitude);
 
-                                if (poiCoordinates != null) {
-                                    MarkerOptions markerOptions = new MarkerOptions()
-                                            .position(poiCoordinates)
-                                            .title(poi.ort) // Setze den Titel des POIs
-                                            .snippet(poi.beschreibung); // Setze eine Beschreibung des POIs
+                                    if (poiCoordinates != null) {
+                                        MarkerOptions markerOptions = new MarkerOptions()
+                                                .position(poiCoordinates)
+                                                .title(poi.ort) // Setze den Titel des POIs
+                                                .snippet(poi.beschreibung); // Setze eine Beschreibung des POIs
 
-                                    // Füge den Marker zur Karte hinzu
-                                    Marker marker = googleMap.addMarker(markerOptions);
+                                        // Füge den Marker zur Karte hinzu
+                                        Marker marker = googleMap.addMarker(markerOptions);
 
-                                    marker.setTag(poi); // Assuming 'poi' is your POI object
+                                        marker.setTag(poi); // Assuming 'poi' is your POI object
 
-                                    googleMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
-                                        @Override
-                                        public boolean onMarkerClick(Marker marker) {
-                                            Poi selectedPoi = (Poi) marker.getTag();
-                                            showDialogWithButtons(selectedPoi);
-                                            return true; // Return true to indicate that the click event has been handled
-                                        }
-                                    });
+                                        googleMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+                                            @Override
+                                            public boolean onMarkerClick(Marker marker) {
+                                                Poi selectedPoi = (Poi) marker.getTag();
+                                                showDialogWithButtons(selectedPoi);
+                                                return true; // Return true to indicate that the click event has been handled
+                                            }
+                                        });
 
-                                    // Benutzerdefiniertes InfoWindow-Layout setzen
-                                    googleMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
-                                        @Override
-                                        public View getInfoWindow(Marker marker) {
-                                            // Hier wird das Standard-InfoWindow nicht verwendet, also wird null zurückgegeben.
-                                            return null;
-                                        }
+                                        // Benutzerdefiniertes InfoWindow-Layout setzen
+                                        googleMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
+                                            @Override
+                                            public View getInfoWindow(Marker marker) {
+                                                // Hier wird das Standard-InfoWindow nicht verwendet, also wird null zurückgegeben.
+                                                return null;
+                                            }
 
-                                        @Override
-                                        public View getInfoContents(Marker marker) {
+                                            @Override
+                                            public View getInfoContents(Marker marker) {
 
-                                            return null;
-                                        }
-                                    });
+                                                return null;
+                                            }
+                                        });
+                                }
                                 }
                             }
                         }
@@ -265,6 +279,8 @@ public class MainActivity extends FragmentActivity {
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.poi_item); // You need to create this layout
 
+        currentlyShowingPoiId = poi.getPoiId();
+
         Button chooseImageButton = dialog.findViewById(R.id.chooseImageButton);
         Button makeImageButton = dialog.findViewById(R.id.open_Camera_Button);
         TextView titleTextView = dialog.findViewById(R.id.titleTextView);
@@ -277,7 +293,8 @@ public class MainActivity extends FragmentActivity {
         });
 
         makeImageButton.setOnClickListener(view -> {
-            checkCameraPermission();
+            //checkCameraPermission();
+            openCamera();
 
         });
         // Set other views in the dialog with the data from the poi object
@@ -285,21 +302,50 @@ public class MainActivity extends FragmentActivity {
         snippetTextView.setText(poi.beschreibung);
 
         String imagePath = poi.getFotoPath();
-        System.out.println("TEST" + imagePath);
-        if (imagePath != null && !imagePath.isEmpty()) {
-            try {
-                Uri imageUri = Uri.parse(imagePath);
-                InputStream inputStream = getContentResolver().openInputStream(imageUri);
-                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                imageView.setImageBitmap(bitmap);
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            }
-            catch (Exception e) {
-                System.out.println("HERE IS THE ERROR:" + e);
-                // Generische Exception-Handling, für alle anderen möglichen Fehler
+
+        if(imagePath.contains("content")) {
+            if (imagePath != null && !imagePath.isEmpty()) {
+                try {
+                    Uri imageUri = Uri.parse(imagePath);
+                    InputStream inputStream = getContentResolver().openInputStream(imageUri);
+                    Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                    imageView.setImageBitmap(bitmap);
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                }
+                catch (Exception e) {
+                    System.out.println("HERE IS THE ERROR:" + e);
+                    // Generische Exception-Handling, für alle anderen möglichen Fehler
+                }
             }
         }
+        else {
+            if (imagePath != null && !imagePath.isEmpty()) {
+                try {
+                    // Erstellen Sie eine Datei-Referenz aus dem imagePath
+                    File imageFile = new File(imagePath);
+
+                    // Generieren Sie eine content URI für die Datei mit FileProvider
+                    Uri imageUri = FileProvider.getUriForFile(
+                            this,
+                            "com.example.roomwordsample2.fileprovider",
+                            imageFile
+                    );
+
+                    // Verwenden Sie die content URI, um das Bild zu laden
+                    InputStream inputStream = getContentResolver().openInputStream(imageUri);
+                    Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                    imageView.setImageBitmap(bitmap);
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                    // Falls das Bild nicht gefunden wird, können Sie hier eine Benachrichtigung anzeigen oder ein Platzhalterbild setzen
+                } catch (Exception e) {
+                    System.out.println("HERE IS THE ERROR:" + e);
+                    // Generische Exception-Handling, für alle anderen möglichen Fehler
+                }
+            }
+        }
+
         dialog.show();
     }
 
@@ -314,7 +360,6 @@ public class MainActivity extends FragmentActivity {
         startActivityForResult(intent, PICK_IMAGE_REQUEST_CODE);
     }
 
-    @SuppressLint("WrongConstant")
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -326,6 +371,8 @@ public class MainActivity extends FragmentActivity {
                 mRouteViewModel.getRouteById(routeId).observe(this, new Observer<Route>() {
                     @Override
                     public void onChanged(Route route) {
+
+                        currentRouteId = routeId;
                         if (route != null) {
                             String gpxFilePath = route.getGpxdatei();
                             loadGPXFileAndDrawPolyline(gpxFilePath);
@@ -337,41 +384,57 @@ public class MainActivity extends FragmentActivity {
 
         if (requestCode == PICK_IMAGE_REQUEST_CODE && resultCode == RESULT_OK) {
             if (data != null && data.getData() != null) {
-                Uri imageUri = data.getData();
-
-                // Take persistable URI permission so you can access the file later
-                final int takeFlags = data.getFlags()
-                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                getContentResolver().takePersistableUriPermission(imageUri, takeFlags);
-
-                // Now you can use the URI to access the file
-                // Set the image in your ImageView or save the URI to use later
-            }
-        }
-
-        if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
-            // Das Foto wurde erfolgreich aufgenommen
-            if (data != null && data.getExtras() != null) {
-                Bitmap photo = (Bitmap) data.getExtras().get("data");
-
-                // Speichere das Foto und aktualisiere den Datenbankpfad
-                // savePhotoAndUpdateDatabase(photo);
-            }
-        }
-
-        if (requestCode == PICK_IMAGE_REQUEST_CODE && resultCode == RESULT_OK) {
-            if (data != null && data.getData() != null) {
                 Uri selectedFileUri = data.getData();
                 String selectedFilePath = selectedFileUri.toString();
 
-                int poiId = 1;
-
                 // Hier kannst du die Poi-Instanz aus der Datenbank abrufen und aktualisieren
-                mPoiViewModel.updateFotoPath(poiId, selectedFilePath);
+                mPoiViewModel.updateFotoPath(currentlyShowingPoiId, selectedFilePath);
 
             }
         }
+
+        // Hinzufügen eines neuen Blocks für die Kameraaktivität
+        // Hinzufügen eines neuen Blocks für die Kameraaktivität
+        if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
+            // Hier ist die URI des Fotos, das Sie gespeichert haben
+            Uri imageUri = Uri.parse(mCurrentPhotoPath);
+
+            // Hier können Sie die Poi-Instanz aus der Datenbank abrufen und aktualisieren
+            mPoiViewModel.updateFotoPath(currentlyShowingPoiId, imageUri.toString());
+        }
+    }
+
+    private void openCamera() {
+        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (cameraIntent.resolveActivity(getPackageManager()) != null) {
+            // Erstellen Sie eine Datei, um das Bild zu speichern
+            Uri photoURI;
+            try {
+                photoURI = createImageFileUri();
+                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
+                startActivityForResult(cameraIntent, CAMERA_REQUEST_CODE);
+            } catch (IOException ex) {
+                // Hier könnte ein Fehler beim Erstellen der Datei behandelt werden
+            }
+        }
+    }
+
+    private Uri createImageFileUri() throws IOException {
+        // Erstellen Sie einen Bild-Dateinamen
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File image = File.createTempFile(
+                imageFileName,  /* prefix */
+                ".jpg",         /* suffix */
+                storageDir      /* directory */
+        );
+
+        // Speichern Sie einen Dateipfad für die Verwendung mit ACTION_VIEW-Intents
+        mCurrentPhotoPath = image.getAbsolutePath();
+        return FileProvider.getUriForFile(this,
+                "com.example.roomwordsample2.fileprovider",  // Diese Zeile korrigieren
+                image);
     }
 
     private void drawPolylineOnMap(List<LatLng> points) {
@@ -405,71 +468,4 @@ public class MainActivity extends FragmentActivity {
             // You can perform any actions that require storage access here
         }
     }
-
-    private void savePhotoAndUpdateDatabase(Bitmap photo) {
-        // Hier kannst du das Foto in einem Dateispeicher oder in der Datenbank speichern
-        // Beispiel: Speichere das Bild im internen Dateispeicher der App
-        String photoPath = savePhotoToInternalStorage(photo);
-
-        // Aktualisiere den Datenbankpfad
-        int poiId = 1;  // Passe dies entsprechend deinem Szenario an
-        mPoiViewModel.updateFotoPath(poiId, photoPath);
-
-        // Lade das aktualisierte Bild in dein Image View
-        ImageView imageView = findViewById(R.id.imageView);
-        imageView.setImageBitmap(photo);
-    }
-
-    private String savePhotoToInternalStorage(Bitmap photo) {
-        // Hier implementiere die Logik zum Speichern des Bildes im internen Speicher
-        // und gib den Dateipfad zurück
-        // Beispiel: Speichere das Bild im internen Cache-Verzeichnis
-        File cacheDir = getCacheDir();
-        File photoFile = new File(cacheDir, "photo.jpg");
-
-        try (FileOutputStream fos = new FileOutputStream(photoFile)) {
-            photo.compress(Bitmap.CompressFormat.JPEG, 100, fos);
-            return Uri.fromFile(photoFile).toString();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-
-        private void checkCameraPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            // Permission is not granted
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA},
-                    CAMERA_PERMISSION_REQUEST_CODE);
-        } else {
-            // Permission already granted
-            openCamera();
-        }
-    }
-
-    private void openCamera() {
-        // Intent to open the camera app
-        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (cameraIntent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(cameraIntent, CAMERA_REQUEST_CODE);
-        }
-    }
-
-        @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Camera permission granted
-                openCamera();
-            } else {
-                // Camera permission denied
-                // Handle accordingly (e.g., show a message to the user)
-            }
-        }
-    }
-
-
 }

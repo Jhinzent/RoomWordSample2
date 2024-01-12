@@ -12,24 +12,23 @@ import android.widget.EditText;
 import com.example.roomwordsample2.Poi;
 import com.example.roomwordsample2.PoiDao;
 import com.example.roomwordsample2.R;
-import com.example.roomwordsample2.Route;
-import com.example.roomwordsample2.RouteDao;
 import com.example.roomwordsample2.WanderRouteDatabase;
-import com.google.android.gms.maps.model.LatLng;
 
 public class NewPoiActivity extends AppCompatActivity {
 
     public static final String EXTRA_REPLY = "com.example.android.wordlistsql.REPLY";
     public static final int PICK_IMAGE_REQUEST_CODE = 0;
 
-
-    // private EditText mEditWordView;
-
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_new_poi);
-        // mEditWordView = findViewById(R.id.edit_word);
+
+        // Empfange die übergebene currentRouteId
+        Intent intent = getIntent();
+        int routeOwnerId = intent.getIntExtra("ROUTE_ID", -1);
+
+        // Jetzt kannst du die currentRouteId in der NewPoiActivity verwenden
 
         EditText editOrt = findViewById(R.id.edit_ort);
         EditText editKoordinaten = findViewById(R.id.edit_koordinaten);
@@ -42,7 +41,6 @@ public class NewPoiActivity extends AppCompatActivity {
             String koordinaten = editKoordinaten.getText().toString();
             String beschreibung = editBeschreibung.getText().toString();
             String foto = "";
-            int routeOwnerId = 1;
 
             Poi newPoi = new Poi(ort, koordinaten, beschreibung, foto, routeOwnerId);
 
